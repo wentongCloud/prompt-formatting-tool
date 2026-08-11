@@ -64,8 +64,107 @@ export function cleanPromptInput(input) {
 
 export function formatPrompt(input) {
   const cleaned = cleanPromptInput(input);
-  if (!/\\[nrt"\\]/.test(cleaned)) return cleaned;
-  return decodeJsonString(cleaned);
+  const decoded = /\\[nrt"\\]/.test(cleaned) ? decodeJsonString(cleaned) : cleaned;
+  return formatStructuredContent(decoded);
+}
+
+function formatStructuredContent(input) {
+  const fenced = input.replace(/```(json|html|xml)\s*\n([\s\S]*?)```/gi, (match, language, content) => {
+    const formatted = language.toLowerCase() === 'json'
+      ? formatJson(content.trim())
+      : formatHtml(content.trim());
+    return `\`\`\`${language}\n${formatted}\n\`\`\``;
+  });
+
+  if (fenced !== input) return fenced;
+
+  const trimmed = input.trim();
+  const edgeWhitespace = input.match(/^\s*/)[0];
+  const trailingWhitespace = input.match(/\s*$/)[0];
+  const formatted = /^[\[{]/.test(trimmed)
+    ? formatJson(trimmed)
+    : /^<[^>]+>/.test(trimmed) ? formatHtml(trimmed) : trimmed;
+
+  return formatted === trimmed ? input : `${edgeWhitespace}${formatted}${trailingWhitespace}`;
+}
+
+function formatJson(input) {
+  try {
+    return JSON.stringify(JSON.parse(input), null, '\t');
+  } catch {
+    return input;
+  }
+}
+
+function formatHtml(input) {
+  const voidElements = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+  const lines = [];
+  let depth = 0;
+  let position = 0;
+
+  while (position < input.length) {
+    const token = readHtmlToken(input, position);
+    if (!token) return input;
+    position = token.end;
+
+    const value = token.value.trim();
+    if (!value) continue;
+
+    const closing = /^<\//.test(value);
+    const tagName = value.match(/^<\/?\s*([\w-]+)/)?.[1]?.toLowerCase();
+    const selfClosing = /\/>$/.test(value) || value.startsWith('<!') || voidElements.has(tagName);
+
+    if (closing) depth = Math.max(0, depth - 1);
+    lines.push(`${'  '.repeat(depth)}${value}`);
+    if (!closing && !selfClosing && /^</.test(value)) depth += 1;
+
+    if (!closing && !selfClosing && isRawTextElement(tagName)) {
+      const closingStart = findClosingTag(input, tagName, position);
+      if (closingStart === -1) return input;
+      const rawContent = input.slice(position, closingStart).trim();
+      if (rawContent) lines.push(`${'  '.repeat(depth)}${rawContent}`);
+      position = closingStart;
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function readHtmlToken(input, start) {
+  if (input.startsWith('<!--', start)) {
+    const end = input.indexOf('-->', start + 4);
+    return end === -1 ? null : { value: input.slice(start, end + 3), end: end + 3 };
+  }
+  if (input.startsWith('<![CDATA[', start)) {
+    const end = input.indexOf(']]>', start + 9);
+    return end === -1 ? null : { value: input.slice(start, end + 3), end: end + 3 };
+  }
+  if (input[start] !== '<') {
+    const end = input.indexOf('<', start);
+    return { value: input.slice(start, end === -1 ? input.length : end), end: end === -1 ? input.length : end };
+  }
+
+  let quote = null;
+  for (let index = start + 1; index < input.length; index += 1) {
+    const char = input[index];
+    if (quote) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === '>') {
+      return { value: input.slice(start, index + 1), end: index + 1 };
+    }
+  }
+  return null;
+}
+
+function isRawTextElement(tagName) {
+  return tagName === 'script' || tagName === 'style' || tagName === 'textarea';
+}
+
+function findClosingTag(input, tagName, start) {
+  const match = new RegExp(`<\\/\\s*${tagName}\\s*>`, 'i').exec(input.slice(start));
+  return match ? start + match.index : -1;
 }
 
 export function compressPrompt(input) {
