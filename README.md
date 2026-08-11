@@ -36,7 +36,7 @@
 1. 克隆并构建：
 
    ```bash
-   git clone https://github.com/<your-username>/prompt-formatting-tool.git
+   git clone https://github.com/wentongCloud/prompt-formatting-tool.git
    cd prompt-formatting-tool
    npm install
    npm run build
