@@ -1,0 +1,28 @@
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { color: #1f2329; background: #f5f7fa; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+body.is-resizing { cursor: col-resize; user-select: none; }
+.app-shell { height: 100%; display: flex; flex-direction: column; }
+.topbar { height: 52px; flex: 0 0 52px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; background: #fff; border-bottom: 1px solid #e5e7eb; }
+.brand, .actions, .pane-header, .pane-header > div { display: flex; align-items: center; }
+.brand { gap: 9px; }
+.brand-mark { display: grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: #fff; background: #1677ff; font-weight: 700; }
+.actions { gap: 8px; }
+.workspace { display: flex; min-height: 0; flex: 1; padding: 12px; }
+.pane { min-width: 0; height: 100%; overflow: hidden; display: flex; flex-direction: column; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.03); }
+.pane-header { height: 42px; flex: 0 0 42px; justify-content: space-between; padding: 0 10px 0 14px; border-bottom: 1px solid #edf0f2; }
+.pane-header > div { gap: 9px; }
+.meta { font-size: 12px; }
+textarea { flex: 1; width: 100%; min-height: 0; resize: none; border: 0; outline: 0; padding: 16px; color: #252a31; background: #fff; font: 13px/1.65 "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+textarea::placeholder { color: #a8afb9; }
+.resizer { width: 10px; flex: 0 0 10px; cursor: col-resize; display: grid; place-items: center; }
+.resizer span { width: 2px; height: 44px; border-radius: 2px; background: #c9cfd8; transition: background .15s, height .15s; }
+.resizer:hover span, body.is-resizing .resizer span { height: 64px; background: #1677ff; }
+.code-view { flex: 1; min-height: 0; overflow: auto; background: #fff; }
+.empty-state { height: 100%; display: grid; place-items: center; color: #a8afb9; font-size: 13px; }
+@media (max-width: 700px) {
+  .workspace { flex-direction: column; }
+  .pane { width: 100% !important; height: calc(50% - 5px); }
+  .resizer { width: 100%; height: 10px; flex-basis: 10px; cursor: row-resize; }
+  .resizer span { width: 44px; height: 2px; }
+}

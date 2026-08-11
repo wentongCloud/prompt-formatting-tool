@@ -1,0 +1,15 @@
+# 依赖
+node_modules/
+
+# 构建产物（扩展加载目录，本地构建生成）
+dist/
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+
+# 编辑器 / 系统
+.DS_Store
+.vscode/
+.idea/
+*.local

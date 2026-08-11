@@ -1,0 +1,10 @@
+{
+  "extName": {
+    "message": "Prompt Formatting Tool",
+    "description": "Extension name"
+  },
+  "extDescription": {
+    "message": "Format and compress prompt content: convert between escaped line text (JSON-safe) and readable Markdown, with automatic removal of JSON wrapper fragments.",
+    "description": "Extension description"
+  }
+}
