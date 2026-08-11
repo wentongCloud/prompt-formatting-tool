@@ -4,13 +4,43 @@ function decodeJsonString(value) {
   try {
     return JSON.parse(`"${value}"`);
   } catch {
-    return value
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t')
-      .replace(/\\"/g, '"')
-      .replace(/\\\\/g, '\\');
+    return manualUnescape(value);
   }
+}
+
+// 逐字符反转义：正确处理 `\\n`（转义反斜杠+n）等连续转义场景，
+// 并容忍裸换行、裸引号等非严格 JSON 输入
+function manualUnescape(str) {
+  const map = {
+    n: '\n',
+    t: '\t',
+    r: '\r',
+    b: '\b',
+    f: '\f',
+    '"': '"',
+    "'": "'",
+    '\\': '\\',
+    '/': '/',
+  };
+  let out = '';
+  for (let i = 0; i < str.length; i += 1) {
+    const ch = str[i];
+    if (ch === '\\' && i + 1 < str.length) {
+      const next = str[i + 1];
+      if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(str.slice(i + 2, i + 6))) {
+        out += String.fromCharCode(parseInt(str.slice(i + 2, i + 6), 16));
+        i += 5;
+        continue;
+      }
+      if (next in map) {
+        out += map[next];
+        i += 1;
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return out;
 }
 
 export function cleanPromptInput(input) {
@@ -39,6 +69,7 @@ export function formatPrompt(input) {
 }
 
 export function compressPrompt(input) {
-  const cleaned = cleanPromptInput(input);
-  return JSON.stringify(cleaned).slice(1, -1);
+  // 压缩是格式化的逆操作：不做清理/裁剪，仅统一换行符后转义
+  const normalized = (input || '').replace(/\r\n?/g, '\n');
+  return JSON.stringify(normalized).slice(1, -1);
 }

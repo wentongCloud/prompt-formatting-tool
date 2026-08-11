@@ -82,10 +82,10 @@ npm run dev
 │   ├── icons/                 # 扩展图标 16/32/48/128
 │   └── _locales/              # 国际化文案（zh_CN / en）
 ├── src/
-│   ├── App.jsx                # 三栏布局 + 操作区 + 拖拽分栏
-│   ├── App.css                # 布局样式
-│   ├── lib/prompt.js          # 核心逻辑：sanitize / format / compress
-│   └── main.jsx               # 入口（Ant Design ConfigProvider）
+│   ├── main.jsx               # 入口 + 三栏布局 UI（Ant Design ConfigProvider）
+│   ├── transform.js           # 核心逻辑：cleanPromptInput / formatPrompt / compressPrompt
+│   ├── transform.test.js      # 单元测试（node --test）
+│   └── styles.css             # 布局样式
 ├── index.html
 └── vite.config.js             # base: './' 适配 chrome-extension:// 加载
 ```
@@ -103,6 +103,7 @@ npm run dev
 | 命令 | 说明 |
 | --- | --- |
 | `npm run dev` | 启动本地开发服务器（Web 形态） |
+| `npm test` | 运行核心逻辑单元测试 |
 | `npm run build` | 构建生产产物至 `dist/`（可直接加载为 Chrome 扩展） |
 | `npm run preview` | 本地预览构建产物 |
 

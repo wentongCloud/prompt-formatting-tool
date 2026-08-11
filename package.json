@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test src/transform.test.js",
     "build": "vite build",
-    "preview": "vite preview",
-    "test": "node --test src/transform.test.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@ant-design/icons": "^5.4.0",
