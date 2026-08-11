@@ -3,6 +3,7 @@ node_modules/
 
 # 构建产物（扩展加载目录，本地构建生成）
 dist/
+*-extension.zip
 
 # 日志与临时文件
 *.log
