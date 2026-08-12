@@ -6,6 +6,12 @@ test('formats escaped line text', () => {
   assert.equal(formatPrompt('Hello\\n\\n## Fields\\n- name: \\"value\\"'), 'Hello\n\n## Fields\n- name: "value"');
 });
 
+test('tolerates line breaks escaped through multiple layers', () => {
+  assert.equal(formatPrompt(String.raw`Hello\\nworld`), 'Hello\nworld');
+  assert.equal(formatPrompt(String.raw`Hello\\\nworld`), 'Hello\nworld');
+  assert.equal(formatPrompt(String.raw`Hello\\\\nworld`), 'Hello\nworld');
+});
+
 test('removes a content wrapper', () => {
   assert.equal(formatPrompt('"content": "Hello\\nworld",'), 'Hello\nworld');
   assert.equal(cleanPromptInput('{"content":"Hello\\nworld"}'), 'Hello\nworld');
@@ -37,6 +43,27 @@ test('pretty-prints an escaped JSON prompt with tabs', () => {
     '\t\t"value": null,',
     '\t\t"readIdx": null',
     '\t}',
+    '}',
+  ].join('\n'));
+});
+
+test('pretty-prints a complete JSON request without decoding string values first', () => {
+  const input = '{"messages":[{"role":"user","content":[{"type":"text","text":"First line\\n\\nSecond line"}]}],"stream":false,"temperature":0}';
+  assert.equal(formatPrompt(input), [
+    '{',
+    '\t"messages": [',
+    '\t\t{',
+    '\t\t\t"role": "user",',
+    '\t\t\t"content": [',
+    '\t\t\t\t{',
+    '\t\t\t\t\t"type": "text",',
+    '\t\t\t\t\t"text": "First line\\n\\nSecond line"',
+    '\t\t\t\t}',
+    '\t\t\t]',
+    '\t\t}',
+    '\t],',
+    '\t"stream": false,',
+    '\t"temperature": 0',
     '}',
   ].join('\n'));
 });

@@ -64,8 +64,36 @@ export function cleanPromptInput(input) {
 
 export function formatPrompt(input) {
   const cleaned = cleanPromptInput(input);
-  const decoded = /\\[nrt"\\]/.test(cleaned) ? decodeJsonString(cleaned) : cleaned;
+
+  // Complete JSON documents must be formatted before their string values are
+  // decoded. Otherwise an escaped newline inside a value makes the JSON invalid.
+  const jsonDocument = formatJsonDocument(cleaned);
+  if (jsonDocument !== null) return jsonDocument;
+
+  const normalized = normalizeEscapedLineBreaks(cleaned);
+  const decoded = /\\[nrt"\\]/.test(normalized) ? decodeJsonString(normalized) : normalized;
   return formatStructuredContent(decoded);
+}
+
+function formatJsonDocument(input) {
+  const trimmed = input.trim();
+  if (!/^[\[{]/.test(trimmed)) return null;
+
+  try {
+    const formatted = JSON.stringify(JSON.parse(trimmed), null, '\t');
+    const leadingWhitespace = input.match(/^\s*/)[0];
+    const trailingWhitespace = input.match(/\s*$/)[0];
+    return `${leadingWhitespace}${formatted}${trailingWhitespace}`;
+  } catch {
+    return null;
+  }
+}
+
+// Logs and copied request bodies may add more than one escaping layer to line
+// breaks. Collapse only newline escapes here; a general repeated unescape would
+// turn unrelated sequences such as `\\\\t` into tabs.
+function normalizeEscapedLineBreaks(input) {
+  return input.replace(/\\+(?=[nr])/g, '\\');
 }
 
 function formatStructuredContent(input) {
