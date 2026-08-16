@@ -106,7 +106,8 @@ function App() {
 
   const updateInput = (value) => {
     setInput(value);
-    setInputType(detectInputType(value));
+    // 用户手动选择格式后锁定，不再被自动识别覆盖
+    if (!isTypeLocked) setInputType(detectInputType(value));
   };
 
   const selectInputType = (type) => {

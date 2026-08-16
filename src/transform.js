@@ -118,10 +118,7 @@ function formatJsonDocument(input) {
   if (!/^[\[{]/.test(trimmed)) return null;
 
   try {
-    const formatted = JSON.stringify(JSON.parse(trimmed), null, '\t');
-    const leadingWhitespace = input.match(/^\s*/)[0];
-    const trailingWhitespace = input.match(/\s*$/)[0];
-    return `${leadingWhitespace}${formatted}${trailingWhitespace}`;
+    return preserveEdgeWhitespace(input, JSON.stringify(JSON.parse(trimmed), null, '\t'));
   } catch {
     return null;
   }
@@ -145,13 +142,11 @@ function formatStructuredContent(input) {
   if (fenced !== input) return fenced;
 
   const trimmed = input.trim();
-  const edgeWhitespace = input.match(/^\s*/)[0];
-  const trailingWhitespace = input.match(/\s*$/)[0];
   const formatted = /^[\[{]/.test(trimmed)
     ? formatJson(trimmed)
     : /^<[^>]+>/.test(trimmed) ? formatHtml(trimmed) : trimmed;
 
-  return formatted === trimmed ? input : `${edgeWhitespace}${formatted}${trailingWhitespace}`;
+  return formatted === trimmed ? input : preserveEdgeWhitespace(input, formatted);
 }
 
 function formatJson(input) {
@@ -263,7 +258,8 @@ function governToonValues(input) {
       }
     }
     if (!closed) return input;
-    output += `"${escapeToonString(normalizeToonValue(value))}"`;
+    // 与 JSON 字符串转义规则一致，直接复用 JSON.stringify
+    output += JSON.stringify(normalizeToonValue(value));
   }
   return output;
 }
@@ -284,21 +280,6 @@ function decodeToonEscape(input, start) {
     return { value: String.fromCharCode(parseInt(unicode.slice(1), 16)), end: start + 5 };
   }
   return { value: `\\${next}`, end: start + 1 };
-}
-
-function escapeToonString(value) {
-  let output = '';
-  for (const char of value) {
-    const code = char.charCodeAt(0);
-    if (char === '\\') output += '\\\\';
-    else if (char === '"') output += '\\"';
-    else if (char === '\n') output += '\\n';
-    else if (char === '\r') output += '\\r';
-    else if (char === '\t') output += '\\t';
-    else if (code <= 0x1f) output += `\\u${code.toString(16).padStart(4, '0')}`;
-    else output += char;
-  }
-  return output;
 }
 
 function findUnquotedColon(input) {
