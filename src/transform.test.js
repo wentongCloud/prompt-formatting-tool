@@ -1,6 +1,80 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cleanPromptInput, compressPrompt, formatPrompt } from './transform.js';
+import { cleanPromptInput, compressPrompt, detectInputType, estimateTokens, formatInput, formatPrompt, formatToon } from './transform.js';
+
+test('estimates tokens from UTF-8 byte length', () => {
+  assert.equal(estimateTokens(''), 0);
+  assert.equal(estimateTokens('hello world'), 3);
+  assert.equal(estimateTokens('你好'), 2);
+  assert.equal(estimateTokens('😀'), 1);
+});
+
+test('detects Prompt, JSON, TOON, and HTML input', () => {
+  assert.equal(detectInputType('Write a concise summary'), 'prompt');
+  assert.equal(detectInputType('{"ok":true}'), 'json');
+  assert.equal(detectInputType('rows[1]{r,cells}: 26,{0:"1"}'), 'toon');
+  assert.equal(detectInputType('<section>Hello</section>'), 'html');
+  assert.equal(detectInputType('123'), 'prompt');
+  assert.equal(detectInputType('true'), 'prompt');
+  assert.equal(detectInputType('null'), 'prompt');
+});
+
+test('formats TOON rows with one cell per indented line', () => {
+  const input = 'rows[1]{r,cells}: 26,{0:"1",0:null,0:null,1:"SIPART PS2 i/p Positioner",0:null,0:null,5:"SET",4:"1",0:null,0:null,0:null,0:null,6:"SIPART PS2 i/p Positioner"}';
+  assert.equal(formatToon(input), [
+    'rows[1]{r,cells}:',
+    '  26,{',
+    '    0:"1",',
+    '    0:null,',
+    '    0:null,',
+    '    1:"SIPART PS2 i/p Positioner",',
+    '    0:null,',
+    '    0:null,',
+    '    5:"SET",',
+    '    4:"1",',
+    '    0:null,',
+    '    0:null,',
+    '    0:null,',
+    '    0:null,',
+    '    6:"SIPART PS2 i/p Positioner"',
+    '  }',
+  ].join('\n'));
+  assert.equal(formatInput(input), formatToon(input));
+});
+
+test('governs TOON string values without changing cell order or coordinates', () => {
+  const input = 'rows[1]{r,cells}: 26,{0:"  ACME\t\t pump  ",1:"say \\"hi\\" at C:\\\\tmp\nnext\rline\u0007",2:"“保留  业务”"}';
+  assert.equal(formatToon(input), [
+    'rows[1]{r,cells}:',
+    '  26,{',
+    '    0:"ACME pump",',
+    '    1:"say \\"hi\\" at C:\\\\tmp\\nnext\\rline\\u0007",',
+    '    2:"保留 业务"',
+    '  }',
+  ].join('\n'));
+});
+
+test('preserves spaces inside unquoted TOON business values', () => {
+  assert.equal(formatToon('rows[1]{r,cells}: 26,{1:SIPART PS2 i/p Positioner}'), [
+    'rows[1]{r,cells}:',
+    '  26,{',
+    '    1:SIPART PS2 i/p Positioner',
+    '  }',
+  ].join('\n'));
+});
+
+test('preserves smart apostrophes in unquoted TOON values', () => {
+  assert.match(formatToon('rows[1]{r,cells}: 26,{1:It’s a pump}'), /1:It’s a pump/);
+});
+
+test('finds the TOON header separator after a colon in the field declaration', () => {
+  assert.equal(formatToon('rows[1]{a:b}: 26,{1:"value"}'), [
+    'rows[1]{a:b}:',
+    '  26,{',
+    '    1:"value"',
+    '  }',
+  ].join('\n'));
+});
 
 test('formats escaped line text', () => {
   assert.equal(formatPrompt('Hello\\n\\n## Fields\\n- name: \\"value\\"'), 'Hello\n\n## Fields\n- name: "value"');

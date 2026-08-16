@@ -1,22 +1,56 @@
 import React, { useEffect, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
-import { Button, ConfigProvider, Tooltip, Typography, message } from 'antd';
+import { Button, ConfigProvider, Select, Tooltip, Typography, message } from 'antd';
 import { CheckOutlined, ClearOutlined, CompressOutlined, CopyOutlined, FormatPainterOutlined } from '@ant-design/icons';
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import markdown from 'react-syntax-highlighter/dist/esm/languages/prism/markdown';
+import json from 'react-syntax-highlighter/dist/esm/languages/prism/json';
+import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { compressPrompt, formatPrompt } from './transform.js';
+import { compressPrompt, detectInputType, estimateTokens, formatInput } from './transform.js';
 import './styles.css';
 
 const { Text } = Typography;
 SyntaxHighlighter.registerLanguage('markdown', markdown);
+SyntaxHighlighter.registerLanguage('json', json);
+SyntaxHighlighter.registerLanguage('markup', markup);
+
+function escapeHtml(value) {
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function buildCopyHtml(text) {
+  const lines = text.split('\n').map((line) => `<div>${escapeHtml(line) || '&nbsp;'}</div>`).join('');
+  return `<pre style="margin:0;font-family:Menlo,Consolas,'Courier New',monospace;font-size:13px;line-height:1.65;">${lines}</pre>`;
+}
+
+function countOutputCharsBefore(view, container, offset) {
+  const prefix = document.createRange();
+  prefix.setStart(view, 0);
+  prefix.setEnd(container, offset);
+  let count = 0;
+  const walk = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      count += node.nodeValue.length;
+      return;
+    }
+    if (node.classList && node.classList.contains('react-syntax-highlighter-line-number')) return;
+    node.childNodes.forEach(walk);
+  };
+  prefix.cloneContents().childNodes.forEach(walk);
+  return count;
+}
 
 function App() {
   const [input, setInput] = useState('');
   const [output, setOutput] = useState('');
   const [leftPercent, setLeftPercent] = useState(50);
   const [copied, setCopied] = useState(false);
+  const [inputType, setInputType] = useState('prompt');
+  const [outputType, setOutputType] = useState('prompt');
+  const [isTypeLocked, setIsTypeLocked] = useState(false);
   const workspaceRef = useRef(null);
+  const codeViewRef = useRef(null);
   const dragging = useRef(false);
 
   useEffect(() => {
@@ -38,12 +72,13 @@ function App() {
     };
   }, []);
 
-  const run = (transform) => {
+  const run = (transform, type) => {
     if (!input.trim()) {
-      message.info('请先输入 Prompt 内容');
+      message.info('Please enter some content first');
       return;
     }
     setOutput(transform(input));
+    setOutputType(type);
   };
 
   const copyOutput = async () => {
@@ -53,33 +88,71 @@ function App() {
     window.setTimeout(() => setCopied(false), 1500);
   };
 
+  const copySelectionFromOutput = (event) => {
+    if (!output) return;
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    const view = codeViewRef.current;
+    if (!view || !view.contains(range.commonAncestorContainer)) return;
+    const start = countOutputCharsBefore(view, range.startContainer, range.startOffset);
+    const end = countOutputCharsBefore(view, range.endContainer, range.endOffset);
+    const text = output.slice(start, end);
+    if (!text) return;
+    event.preventDefault();
+    event.clipboardData.setData('text/plain', text);
+    event.clipboardData.setData('text/html', buildCopyHtml(text));
+  };
+
+  const updateInput = (value) => {
+    setInput(value);
+    setInputType(detectInputType(value));
+  };
+
+  const selectInputType = (type) => {
+    setInputType(type);
+    setIsTypeLocked(true);
+  };
+
   return (
-    <ConfigProvider theme={{ token: { colorPrimary: '#1677ff', borderRadius: 6, fontSize: 13 }, components: { Button: { controlHeightSM: 28 } } }}>
+    <ConfigProvider theme={{ token: { colorPrimary: '#1677ff', borderRadius: 6, fontSize: 13 }, components: { Button: { controlHeightSM: 28 }, Select: { controlHeightSM: 28 } } }}>
       <main className="app-shell">
         <header className="topbar">
-          <div className="brand"><span className="brand-mark">P</span><Text strong>Prompt 格式化工具</Text></div>
+          <div className="brand"><span className="brand-mark">P</span><Text strong>Prompt Formatting Tool</Text></div>
           <div className="actions">
-            <Button size="small" icon={<FormatPainterOutlined />} type="primary" onClick={() => run(formatPrompt)}>格式化</Button>
-            <Button size="small" icon={<CompressOutlined />} onClick={() => run(compressPrompt)}>压缩</Button>
+            <Select
+              aria-label="Input format"
+              size="small"
+              value={inputType}
+              onChange={selectInputType}
+              options={[
+                { value: 'prompt', label: 'Prompt' },
+                { value: 'json', label: 'JSON' },
+                { value: 'toon', label: 'TOON' },
+                { value: 'html', label: 'HTML' },
+              ]}
+            />
+            <Button size="small" icon={<FormatPainterOutlined />} type="primary" onClick={() => run((value) => formatInput(value, inputType), inputType)}>Format</Button>
+            <Button size="small" icon={<CompressOutlined />} onClick={() => run(compressPrompt, 'prompt')}>Compress</Button>
           </div>
         </header>
 
         <section className="workspace" ref={workspaceRef}>
           <section className="pane input-pane" style={{ width: `calc(${leftPercent}% - 5px)` }}>
-            <PaneHeader title="输入" meta={`${input.length} 字符`}>
-              <Tooltip title="清空"><Button aria-label="清空输入" size="small" type="text" icon={<ClearOutlined />} onClick={() => { setInput(''); setOutput(''); }} /></Tooltip>
+            <PaneHeader title="Input" meta={`~${estimateTokens(input)} tokens`}>
+              <Tooltip title="Clear"><Button aria-label="Clear input" size="small" type="text" icon={<ClearOutlined />} onClick={() => { setInput(''); setOutput(''); setInputType('prompt'); setOutputType('prompt'); setIsTypeLocked(false); }} /></Tooltip>
             </PaneHeader>
-            <textarea value={input} onChange={(event) => setInput(event.target.value)} spellCheck={false} placeholder={'粘贴 Prompt 或 JSON content 字段…\n\n支持自动移除 "content": " 与末尾包装。'} />
+            <textarea value={input} onChange={(event) => updateInput(event.target.value)} spellCheck={false} placeholder={'Paste Prompt, JSON, TOON, or HTML…\n\nInput format is detected automatically.'} />
           </section>
 
-          <div className="resizer" role="separator" aria-orientation="vertical" aria-label="调整面板宽度" onMouseDown={() => { dragging.current = true; document.body.classList.add('is-resizing'); }}><span /></div>
+          <div className="resizer" role="separator" aria-orientation="vertical" aria-label="Adjust panel width" onMouseDown={() => { dragging.current = true; document.body.classList.add('is-resizing'); }}><span /></div>
 
           <section className="pane output-pane" style={{ width: `calc(${100 - leftPercent}% - 5px)` }}>
-            <PaneHeader title="输出" meta={`${output.length} 字符`}>
-              <Tooltip title={copied ? '已复制' : '复制'}><Button aria-label="复制输出" disabled={!output} size="small" type="text" icon={copied ? <CheckOutlined /> : <CopyOutlined />} onClick={copyOutput} /></Tooltip>
+            <PaneHeader title="Output" meta={`${output.length} chars`}>
+              <Tooltip title={copied ? 'Copied' : 'Copy'}><Button aria-label="Copy output" disabled={!output} size="small" type="text" icon={copied ? <CheckOutlined /> : <CopyOutlined />} onClick={copyOutput} /></Tooltip>
             </PaneHeader>
-            <div className="code-view">
-              {output ? <SyntaxHighlighter language="markdown" style={oneLight} showLineNumbers wrapLongLines customStyle={{ margin: 0, minHeight: '100%', background: '#fff', fontSize: 13, lineHeight: 1.65, padding: '16px 12px' }} lineNumberStyle={{ minWidth: '2.8em', color: '#b6bcc6', paddingRight: '14px', userSelect: 'none' }}>{output}</SyntaxHighlighter> : <div className="empty-state">格式化结果将在这里显示</div>}
+            <div className="code-view" ref={codeViewRef} onCopy={copySelectionFromOutput} onCut={copySelectionFromOutput}>
+              {output ? <SyntaxHighlighter language={outputType === 'json' ? 'json' : outputType === 'html' ? 'markup' : 'markdown'} style={oneLight} showLineNumbers wrapLongLines customStyle={{ margin: 0, minHeight: '100%', background: '#fff', fontSize: 13, lineHeight: 1.65, padding: '16px 12px' }} lineNumberStyle={{ minWidth: '2.8em', color: '#b6bcc6', paddingRight: '14px', userSelect: 'none' }}>{output}</SyntaxHighlighter> : <div className="empty-state">Formatted result will appear here</div>}
             </div>
           </section>
         </section>
