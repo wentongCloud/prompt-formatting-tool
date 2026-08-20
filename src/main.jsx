@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { Button, ConfigProvider, Select, Tooltip, Typography, message } from 'antd';
 import { CheckOutlined, ClearOutlined, CompressOutlined, CopyOutlined, FormatPainterOutlined } from '@ant-design/icons';
@@ -22,6 +22,24 @@ function escapeHtml(value) {
 function buildCopyHtml(text) {
   const lines = text.split('\n').map((line) => `<div>${escapeHtml(line) || '&nbsp;'}</div>`).join('');
   return `<pre style="margin:0;font-family:Menlo,Consolas,'Courier New',monospace;font-size:13px;line-height:1.65;">${lines}</pre>`;
+}
+
+// 异步剪贴板被拒时的降级：隐藏 textarea + execCommand（扩展页需 clipboardWrite 权限）
+function fallbackCopy(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
+  }
+  document.body.removeChild(textarea);
+  return ok;
 }
 
 function countOutputCharsBefore(view, container, offset) {
@@ -52,6 +70,8 @@ function App() {
   const workspaceRef = useRef(null);
   const codeViewRef = useRef(null);
   const dragging = useRef(false);
+  // 拖拽调宽会高频重渲染，避免每次全量 TextEncoder.encode
+  const tokenEstimate = useMemo(() => estimateTokens(input), [input]);
 
   useEffect(() => {
     const onMove = (event) => {
@@ -83,7 +103,14 @@ function App() {
 
   const copyOutput = async () => {
     if (!output) return;
-    await navigator.clipboard.writeText(output);
+    try {
+      await navigator.clipboard.writeText(output);
+    } catch {
+      if (!fallbackCopy(output)) {
+        message.error('Copy failed — please select the text and copy manually');
+        return;
+      }
+    }
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1500);
   };
@@ -140,7 +167,7 @@ function App() {
 
         <section className="workspace" ref={workspaceRef}>
           <section className="pane input-pane" style={{ width: `calc(${leftPercent}% - 5px)` }}>
-            <PaneHeader title="Input" meta={`~${estimateTokens(input)} tokens`}>
+            <PaneHeader title="Input" meta={`~${tokenEstimate} tokens`}>
               <Tooltip title="Clear"><Button aria-label="Clear input" size="small" type="text" icon={<ClearOutlined />} onClick={() => { setInput(''); setOutput(''); setInputType('prompt'); setOutputType('prompt'); setIsTypeLocked(false); }} /></Tooltip>
             </PaneHeader>
             <textarea value={input} onChange={(event) => updateInput(event.target.value)} spellCheck={false} placeholder={'Paste Prompt, JSON, TOON, or HTML…\n\nInput format is detected automatically.'} />

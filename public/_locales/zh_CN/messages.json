@@ -6,5 +6,9 @@
   "extDescription": {
     "message": "Prompt 内容格式化与压缩：行文本(JSON 转义)与 Markdown 双向转换，自动过滤 JSON 包装碎片。",
     "description": "扩展描述"
+  },
+  "actionTitle": {
+    "message": "打开 Prompt 格式化工具",
+    "description": "工具栏图标提示"
   }
 }

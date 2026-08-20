@@ -13,4 +13,5 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+.qoder/
 *.local

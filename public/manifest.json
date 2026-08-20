@@ -4,6 +4,9 @@
   "version": "1.1.1",
   "description": "__MSG_extDescription__",
   "default_locale": "en",
+  "permissions": [
+    "clipboardWrite"
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -11,7 +14,7 @@
     "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "打开 Prompt 格式化工具",
+    "default_title": "__MSG_actionTitle__",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
