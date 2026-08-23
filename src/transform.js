@@ -4,7 +4,7 @@
 import {
   FULLWIDTH_QUOTES, JSON_ESCAPE, JSON_INDENT, MAX_JSON_DECODE_ROUNDS,
   decodeEscapeLayer, decodeJsonString, decodeToStableText, encodeEscapeLayer,
-  gateEncode, hasStructuralEscapes, preserveEdgeWhitespace,
+  gateEncode, hasStructuralEscapes, preserveEdgeSpaces, preserveEdgeWhitespace,
 } from './escape.js';
 import {
   isJsonLike, isObject, isParsableJson, parseJsonDocument, parseJsonLayers,
@@ -174,12 +174,12 @@ export function compressPrompt(input) {
   // CR/CRLF 归一为 LF（有意设计，README 已标注）；随后与格式化侧对齐去噪
   const normalized = (input || '').replace(/\r\n?/g, '\n');
   const trimmed = normalized.trim();
-  if (!trimmed) return preserveEdgeWhitespace(input || '', '');
+  if (!trimmed) return preserveEdgeSpaces(input || '', '');
 
   const parsed = parseJsonDocument(trimmed);
   if (isObject(parsed)) {
     const compact = JSON.stringify(compactJsonValue(parsed));
-    return preserveEdgeWhitespace(normalized, encodeEscapeLayer(compact));
+    return preserveEdgeSpaces(normalized, encodeEscapeLayer(compact));
   }
 
   // 去噪与格式化侧对齐：剥离 "content": " 包装碎片与外层引号
@@ -190,23 +190,99 @@ export function compressPrompt(input) {
     const peeled = hasStructuralEscapes(cleaned)
       ? decodeEscapeLayer(cleaned, false)
       : cleaned;
-    return preserveEdgeWhitespace(normalized, encodeEscapeLayer(collapseInlineWhitespace(peeled)));
+    return preserveEdgeSpaces(normalized, encodeEscapeLayer(collapseInlineWhitespace(peeled)));
   }
-  return preserveEdgeWhitespace(normalized, compressPlainText(cleaned));
+  return preserveEdgeSpaces(normalized, compressPlainText(cleaned));
 }
 
 // 文本路径的去噪与编码：先去噪折叠得到纯文本形态做整体 HTML 判定；
-// 非 HTML 按段编码——非 fenced 段门禁直通（不先解码，避免 C:\tmp 类字面 \t 被误当 Tab），
+// 非 HTML 按段编码——非 fenced 段多行完整转义 / 单行门禁直通（不先解码，避免 C:\tmp 类字面 \t 被误当 Tab），
 // fenced 段盲加一层转义（与格式化侧剥层对称，保住块内自身转义）
 function compressPlainText(input) {
   const parts = splitFencedParts(input);
   const plain = parts.map((part) => (!part.fenced
-    ? collapseInlineWhitespace(normalizeCopyNoise(part.text))
+    ? collapsePlainText(part.text)
     : `\`\`\`${part.language}\n${collapseFencedContent(part)}\n\`\`\``)).join('');
   if (detectInputType(plain) === 'html') return gateEncode(collapseAllWhitespace(plain));
   return parts.map((part) => (!part.fenced
-    ? gateEncode(collapseInlineWhitespace(normalizeCopyNoise(part.text)))
+    ? encodePlainText(part.text)
     : encodeEscapeLayer(`\`\`\`${part.language}\n${collapseFencedContent(part)}\n\`\`\``))).join('');
+}
+
+// 非 fenced 段的压缩去噪：先归一复制噪声，再把「已转义换行 \n」展开为真实换行，
+// 使后续折叠能把它视为行边界——否则 \n 后的行首缩进会被当行内空白折成单空格
+function collapsePlainText(text) {
+  return collapseInlineWhitespace(expandEscapedNewlines(normalizeCopyNoise(text)));
+}
+
+// 非 fenced 段编码：含真实换行即为可读 Markdown，走完整转义；
+// 单行文本可能已是压缩产物，走门禁直通，重复压缩幂等不叠加层级；
+// 多行文本若混入已压缩片段（字面 \n / \" 信号），先去噪再转换：
+// 折叠前先定向剥掉这层转义（只剥 \" 与 \n，字面 \t/\\ 保留，
+// 避免 C:\tmp 类路径被误当 Tab 解码），再折叠、完整编码，产物不叠加层级；
+// 无信号的多行文本仍按完整转义表编码，字面 \" 编码为 \\\"
+function encodePlainText(text) {
+  const denoised = MIXED_LAYER_SIGNAL.test(text) ? peelMixedLayer(text) : text;
+  const collapsed = collapsePlainText(denoised);
+  return /\n/.test(text) ? encodeEscapeLayer(collapsed) : gateEncode(collapsed);
+}
+
+// 已压缩内容混入可读文本的信号：字面 \n 与 \" 转义序列是压缩产物必有的；
+// 刻意不含 \t 与 \\（路径/正则高发，保护优先）
+const MIXED_LAYER_SIGNAL = /\\[n"]/;
+
+// 定向剥层：只把 \" 还原为引号、\n 展开为真实换行（交由折叠视为行边界）；
+// \\n 成对跳过（已转义反斜杠 + 字面 n 不是换行），\t \\ 等其余转义原样保留，
+// 与「字面 \t 保护优先」的门禁决策一致，不承担全量单层解码的路径风险
+function peelMixedLayer(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== '\\') {
+      out += text[i];
+      continue;
+    }
+    if (text[i + 1] === '\\') {
+      out += '\\\\';
+      i += 1;
+      continue;
+    }
+    if (text[i + 1] === '"') {
+      out += '"';
+      i += 1;
+      continue;
+    }
+    if (text[i + 1] === 'n') {
+      out += '\n';
+      i += 1;
+      continue;
+    }
+    out += text[i];
+  }
+  return out;
+}
+
+// 仅把 \n 转义（单个反斜杠后跟 n）展开为真实换行，供空白折叠识别行边界；
+// \\n（已转义反斜杠 + 字面 n）成对跳过不受影响，其余转义（\t \" \\ 等）原样保留
+function expandEscapedNewlines(text) {
+  let out = '';
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== '\\') {
+      out += text[i];
+      continue;
+    }
+    if (text[i + 1] === '\\') {
+      out += '\\\\';
+      i += 1;
+      continue;
+    }
+    if (text[i + 1] === 'n') {
+      out += '\n';
+      i += 1;
+      continue;
+    }
+    out += text[i];
+  }
+  return out;
 }
 
 function splitFencedParts(input) {

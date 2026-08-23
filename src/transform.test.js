@@ -105,6 +105,41 @@ test('formats concatenated TOON documents independently', () => {
   ].join('\n'));
 });
 
+test('formats TOON arrays without a field declaration and their nested table blocks', () => {
+  // name[N]: 无字段声明的数组表头 + 嵌套 - fields[·]{·}: 表格块：
+  // CSV 行整行保留不按逗号拆行，嵌套块跟随块表头缩进
+  const input = String.raw`items[2]:\n  - fields[2]{rowIdx,value}:\n7,\"one\"\n8,\"two\"`;
+  assert.equal(detectInputType(input), 'toon');
+  assert.equal(formatToon(input), [
+    'items[2]:',
+    '  - fields[2]{rowIdx,value}:',
+    '    7,"one"',
+    '    8,"two"',
+  ].join('\n'));
+});
+
+test('keeps sibling nested TOON blocks at the same indent level', () => {
+  // 并列块由声明长度自动出栈：每个 - fields[1]{a}: 消费 1 行后关闭，
+  // 下一个块表头回到同级缩进，不逐块加深
+  const input = String.raw`items[1]:\n  - fields[1]{a}:\n    1\n  - fields[1]{a}:\n    2`;
+  assert.equal(formatToon(input), [
+    'items[1]:',
+    '  - fields[1]{a}:',
+    '    1',
+    '  - fields[1]{a}:',
+    '    2',
+  ].join('\n'));
+});
+
+test('round-trips nested TOON arrays through compress and format', () => {
+  const input = String.raw`items[2]:\n  - fields[2]{rowIdx,value}:\n7,\"one\"\n8,\"two\"`;
+  const formatted = formatToon(input);
+  const compressed = compressPrompt(formatted);
+  assert.equal(compressed.includes('\n'), false);
+  assert.equal(formatToon(compressed), formatted);
+  assert.equal(compressPrompt(compressed), compressed);
+});
+
 test('round-trips TOON through compress and format without corrupting value escapes', () => {
   // 值内含字面 \n 转义：剥层不得使用 fold 语义，否则往返后变成真实换行
   const toon = formatToon(String.raw`rows[1]{r,cells}: 1,{0:"a\\nb",1:"line1\nline2"}`);
@@ -139,10 +174,40 @@ test('escapes literal backslash sequences instead of decoding them', () => {
 });
 
 test('never re-escapes existing escape sequences when compressing (gate)', () => {
-  for (const escaped of ['a\\\\b', 'a\\bb', 'a\\fb', 'a\\u0000b', 'a\\\\"b', 'a\\nb', 'a\\rb', 'a\\"b']) {
+  for (const escaped of ['a\\\\b', 'a\\bb', 'a\\fb', 'a\\u0000b', 'a\\\\\\"b', 'a\\nb', 'a\\rb', 'a\\"b']) {
     assert.equal(compressPrompt(escaped), escaped, escaped);
     assert.equal(compressPrompt(compressPrompt(escaped)), escaped, escaped);
   }
+});
+
+test('escapes bare quotes even when the text also carries gated escapes', () => {
+  // 内联代码里的字面 \" 与散文中的裸引号并存：裸引号仍须转义，
+  // 否则压缩产物不是合法 JSON 字符串体
+  const markdown = 'Value is 0:\\"value\\" and it is "quoted".';
+  const compressed = compressPrompt(markdown);
+  assert.equal(compressed, 'Value is 0:\\"value\\" and it is \\"quoted\\".');
+  // 压缩产物必须可直接嵌入 JSON 字符串（合法，不再因裸引号报错）
+  assert.doesNotThrow(() => JSON.parse(`"${compressed}"`));
+});
+
+test('denoises compressed fragments mixed into multi-line markdown before encoding', () => {
+  // 先去噪后转换：多行文本混入已压缩片段（字面 \" / \n）时先剥掉这层转义再编码，
+  // 不叠加出 \\\" 类过度转义；产物是合法 JSON 字符串体且重复压缩幂等；
+  // 字面 \t/\\ 不在剥层范围（路径/正则保护优先）
+  const markdown = 'No value -> `0:\\"\\"`.\nValue -> `0:\\"value\\"`.';
+  const compressed = compressPrompt(markdown);
+  assert.equal(compressed, 'No value -> `0:\\"\\"`.\\nValue -> `0:\\"value\\"`.');
+  assert.doesNotThrow(() => JSON.parse(`"${compressed}"`));
+  assert.equal(compressPrompt(compressed), compressed);
+  // 混入的字面 \t 不被剥层误当 Tab 解码
+  assert.equal(compressPrompt('a\npath C:\\tmp \\"q\\"'), 'a\\npath C:\\\\tmp \\"q\\"');
+});
+
+test('strips line-leading whitespace after escaped newlines when compressing', () => {
+  assert.equal(compressPrompt('- item1\\n  - item2'), '- item1\\n- item2');
+  assert.equal(compressPrompt('a\\n  b'), 'a\\nb');
+  // \\n（已转义反斜杠 + 字面 n）不是换行，不受影响
+  assert.equal(compressPrompt('a\\\\n  b'), 'a\\\\n b');
 });
 
 test('escapes a lone real tab instead of folding it into a space', () => {
@@ -196,6 +261,14 @@ test('format decodes compressed prompts and formats their JSON blocks', () => {
 test('preserves edge whitespace in plain prompts', () => {
   assert.equal(formatPrompt('  prompt  '), '  prompt  ');
   assert.equal(compressPrompt('  prompt  '), '  prompt  ');
+});
+
+test('compresses without leaking raw edge newlines into the JSON body', () => {
+  // 首尾真实换行不得保留在压缩产物里，否则产物不是单行 JSON 字符串体；
+  // 混入的字面 \" 先去噪再编码，不叠加层级（恰好一层转义）
+  const compressed = compressPrompt('- No value -> `0:\\"\\"`.\n- Value -> `0:\\"value\\"`.\n');
+  assert.equal(compressed.includes('\n'), false);
+  assert.equal(compressed, '- No value -> `0:\\"\\"`.\\n- Value -> `0:\\"value\\"`.');
 });
 
 test('pretty-prints an escaped JSON prompt with tabs', () => {

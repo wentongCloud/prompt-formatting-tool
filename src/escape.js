@@ -107,7 +107,9 @@ export function gateEncode(text) {
       out += '\\\\';
       continue;
     }
-    if (ch === '"') { out += gated ? '"' : '\\"'; continue; }
+    // 裸引号无论是否处于门禁模式都必须转义：门禁只保护「已转义」的 \",
+    // 而独立出现的 " 从未被转义，直接放行会产出非法的 JSON 字符串体
+    if (ch === '"') { out += '\\"'; continue; }
     if (ch === '\n') { out += '\\n'; continue; }
     if (ch === '\t') { out += '\\t'; continue; }
     if (ch === '\b') { out += '\\b'; continue; }
@@ -184,9 +186,15 @@ export function hasStructuralEscapes(text) {
   return found;
 }
 
-// 通用：保留输入首尾空白（各格式化/压缩入口共享）
+// 通用：保留输入首尾空白（各格式化入口共享）
 export function preserveEdgeWhitespace(input, formatted) {
   return `${input.match(/^\s*/)[0]}${formatted}${input.match(/\s*$/)[0]}`;
+}
+
+// 压缩入口专用：仅保留首尾水平空白（空格/Tab），不保留换行等垂直空白，
+// 否则压缩产物（单行 JSON 字符串体）首尾会残留真实换行而破坏 JSON 合法性
+export function preserveEdgeSpaces(input, formatted) {
+  return `${input.match(/^[ \t]*/)[0]}${formatted}${input.match(/[ \t]*$/)[0]}`;
 }
 
 export { ESCAPE_MAP, FULLWIDTH_QUOTES, JSON_ESCAPE, JSON_INDENT, MAX_JSON_DECODE_ROUNDS, STRUCTURAL_ESCAPE };
