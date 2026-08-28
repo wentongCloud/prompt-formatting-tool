@@ -1,40 +1,40 @@
-# Prompt 格式化工具（Prompt Formatting Tool）
+# Prompt Formatting Tool
 
-> 一款 Chrome 扩展 + Web 双形态的 Prompt 内容格式化 / 压缩工具：在「带转义的单行行文本」与「可读的多行 Markdown」之间一键双向转换。
+> A Prompt formatting / compression tool available as both a Chrome extension and a web app: one-click, bidirectional conversion between "escaped single-line text" and "readable multi-line Markdown".
 
 ![screenshot](docs/screenshot.png)
 
-## ✨ 解决什么问题
+## ✨ Problem It Solves
 
-从 API 请求日志、对话数据集或代码中复制出来的 prompt 通常是这样的单行转义文本：
+Prompts copied from API request logs, conversation datasets, or code usually look like this escaped single-line text:
 
 ```
 "content": "Extract spare-part records.\n\n<input>\n```\nrows[7]{r,cells}:\n...\n```\n</input>",
 ```
 
-难以阅读、难以编辑。本工具将其一键还原为格式化的 Markdown：
+Hard to read, hard to edit. This tool restores it to formatted Markdown with one click:
 
-- **格式化**：行文本 → 多行 Markdown（反转义 `\n` `\"` `\\` 等）
-- **压缩**：多行 Markdown → 单行行文本（JSON 安全转义，可直接嵌回 JSON）
+- **Format**: single-line text → multi-line Markdown (unescapes `\n` `\"` `\\`, etc.)
+- **Compress**: multi-line Markdown → single-line text (JSON-safe escaping, ready to embed back into JSON)
 
-## 🚀 功能特性
+## 🚀 Features
 
-| 功能 | 说明 |
+| Feature | Description |
 | --- | --- |
-| 格式化 | 反转义 `\n \r \t \b \f \" \\ \/ \uXXXX`，折叠连续空格/Tab，还原为可读 Markdown |
-| 压缩 | 格式化的逆操作，输出可直接嵌入 JSON 字符串的单行文本 |
-| 压缩去噪 | 与格式化同型去噪（剥 `"content": "` 包装、外层引号）；≥2 个连续空格/Tab 折为单空格；`<br>`/`<br/>`/`<br />` 统一转 `\n`；删除全角引号 `＂` `＇` |
-| 自动过滤 | 粘贴时自动剥离 `"content": "` 前缀、`",` 后缀等 JSON 包装碎片 |
-| Markdown 高亮 | 右侧输出区语法高亮 + 行号显示 |
-| 三栏布局 | 左输入 / 右输出 / 中间可拖拽调节宽度，高度自适应（页面高度 − 顶栏） |
-| 一键复制 | 输出结果一键复制到剪贴板 |
-| Ant Design | 全部组件 small 尺寸、light 主题、Ant Icons |
+| Format | Unescapes `\n \r \t \b \f \" \\ \/ \uXXXX`, collapses runs of spaces/tabs, restores readable Markdown |
+| Compress | The inverse of formatting; outputs single-line text that can be embedded directly in a JSON string |
+| Compression denoising | Same-shape denoising as formatting (strips `"content": "` wrapper and outer quotes); collapses runs of ≥2 spaces/tabs into a single space; normalizes `<br>`/`<br/>`/`<br />` to `\n`; removes fullwidth quotes `＂` `＇` |
+| Auto filtering | Automatically strips JSON wrapper debris such as the `"content": "` prefix and `",` suffix on paste |
+| Markdown highlighting | Syntax highlighting + line numbers in the output panel |
+| Three-column layout | Input on the left / output on the right / draggable divider to adjust width; height adapts to the page (page height − top bar) |
+| One-click copy | Copy the output to the clipboard with one click |
+| Ant Design | All components in small size, light theme, with Ant Icons |
 
-## 📦 安装与使用
+## 📦 Installation & Usage
 
-### 方式一：Chrome 扩展
+### Option 1: Chrome Extension
 
-1. 克隆并构建：
+1. Clone and build:
 
    ```bash
    git clone https://github.com/wentongCloud/prompt-formatting-tool.git
@@ -43,81 +43,81 @@
    npm run build
    ```
 
-2. 打开 Chrome，访问 `chrome://extensions`，开启右上角「开发者模式」
-3. 点击「加载已解压的扩展程序」，选择项目中的 **`dist`** 目录
-4. 点击浏览器工具栏中的插件图标，工具会在新标签页打开
+2. Open Chrome, go to `chrome://extensions`, and enable "Developer mode" in the top-right corner
+3. Click "Load unpacked" and select the **`dist`** directory in the project
+4. Click the extension icon in the browser toolbar; the tool opens in a new tab
 
-> 修改源码后需重新 `npm run build`，并在扩展页面点击该扩展的刷新按钮（↻）。
+> After modifying the source code, run `npm run build` again and click the refresh button (↻) of the extension on the extensions page.
 
-### 方式二：Web 应用（本地开发）
+### Option 2: Web App (local development)
 
 ```bash
 npm install
 npm run dev
 ```
 
-浏览器访问 <http://localhost:5173>，支持热更新，适合开发调试。
+Visit <http://localhost:5173> in your browser. Hot reload is supported, ideal for development.
 
-## 🔧 转义规则
+## 🔧 Escaping Rules
 
-**压缩（Markdown → 行文本）完整转义清单：**
+**Compress (Markdown → single-line text) — full escape table:**
 
-| 原字符 | 转义结果 | 原字符 | 转义结果 |
+| Source char | Escaped as | Source char | Escaped as |
 | --- | --- | --- | --- |
-| `\` | `\\` | 换行 | `\n` |
-| `"` | `\"` | 回车 | `\r` |
-| Tab | `\t` | 退格 | `\b` |
-| 换页 | `\f` | 其他控制字符 (U+0000–U+001F) | `\uXXXX` |
+| `\` | `\\` | newline | `\n` |
+| `"` | `\"` | carriage return | `\r` |
+| Tab | `\t` | backspace | `\b` |
+| form feed | `\f` | other control chars (U+0000–U+001F) | `\uXXXX` |
 
-> 注：`/` 在 JSON 中无需转义（`\/` 合法但非必需），故不做处理；Unicode 字符保持原样，保证可读性。
-> 压缩同时做空白规整（见「压缩去噪」）；CR/CRLF 先归一为 LF。
-> 多行 Markdown 走完整转义；若混入已压缩片段（字面 `\n` / `\"`）则先去噪再转换：只剥这层 `\n`/`\"` 转义（字面 `\t`/`\\` 不动，保护路径/正则）再编码，产物恰好一层转义，重复压缩不叠加。
-> 门禁（单行文本）：输入已含合法转义（`\"` `\\` `\n` `\r` `\b` `\f` `\uXXXX`）时原样保护、绝不二次转义，重复压缩不叠加层级；裸引号 `"` 无论何时都转义为 `\"`，保证产物是合法 JSON 字符串体。
-> 字面 `\t` 不视为已有转义：Windows 路径/正则（`C:\tmp`、`\d+`）远比转义 Tab 常见，其反斜杠按表转义为 `\\t`；单个真实 Tab 则输出 `\t`。
+> Note: `/` does not need escaping in JSON (`\/` is legal but not required), so it is left alone; Unicode characters are kept as-is for readability.
+> Compression also normalizes whitespace (see "Compression denoising"); CR/CRLF is normalized to LF first.
+> Multi-line Markdown is fully escaped; if compressed fragments (literal `\n` / `\"`) are mixed in, denoising runs first: only that layer of `\n`/`\"` escapes is peeled (literal `\t`/`\\` are untouched, protecting paths/regex) before encoding, so the product carries exactly one escape layer and repeated compression never stacks.
+> Gate (single-line text): if the input already contains legal escapes (`\"` `\\` `\n` `\r` `\b` `\f` `\uXXXX`), they are protected as-is and never double-escaped; repeated compression never stacks layers. A bare quote `"` is always escaped to `\"`, guaranteeing the product is a valid JSON string body.
+> Literal `\t` is not treated as an existing escape: Windows paths/regex (`C:\tmp`, `\d+`) are far more common than escaped Tabs, so their backslashes are escaped per the table to `\\t`; a single real Tab character outputs `\t`.
 
-**格式化（行文本 → Markdown）** 优先使用 `JSON.parse` 覆盖全部标准转义；
-对包含裸换行、裸引号等非严格 JSON 输入，自动退回逐字符反转义，保证健壮性。
+**Format (single-line text → Markdown)** prefers `JSON.parse` to cover all standard escapes;
+for non-strict JSON input containing bare newlines, bare quotes, etc., it automatically falls back to character-by-character unescaping for robustness.
 
-> 空白折叠：格式化与压缩均将 ≥2 个连续空格/Tab 折为单空格；格式化保留行首缩进与行尾空白（Markdown 缩进代码块/硬换行语义），fenced 代码块原样不参与。压缩时已转义的 `\n` 视为行边界，其后行首缩进被删除而非折成单空格；`\\n`（转义反斜杠 + 字面 n）不是换行。
-> `<br>` 归一、全角引号删除与行首尾修剪仅发生在压缩侧。例外：HTML 按空白语义折叠标签间空白，但 `<pre>`/`<textarea>`/`<script>`/`<style>` 内容原样保留。
+> Whitespace collapsing: both formatting and compression collapse runs of ≥2 spaces/tabs into a single space; formatting preserves leading indentation and trailing whitespace per line (Markdown indented code blocks / hard line break semantics), and fenced code blocks are kept as-is. During compression, an escaped `\n` is treated as a line boundary, so indentation after it is stripped rather than collapsed to a single space; `\\n` (escaped backslash + literal n) is not a line break.
+> `<br>` normalization, fullwidth quote removal, and line-end trimming happen only on the compression side. Exception: HTML collapses whitespace between tags per whitespace semantics, but the contents of `<pre>`/`<textarea>`/`<script>`/`<style>` are preserved as-is.
 
-## 🗂 项目结构
+## 🗂 Project Structure
 
 ```
-├── public/                    # 静态资源（构建时原样拷贝至 dist）
-│   ├── manifest.json          # Chrome 扩展清单（MV3）
-│   ├── background.js          # Service Worker：点击图标打开工具页
-│   ├── icons/                 # 扩展图标 16/32/48/128
-│   └── _locales/              # 国际化文案（zh_CN / en）
+├── public/                    # Static assets (copied as-is to dist on build)
+│   ├── manifest.json          # Chrome extension manifest (MV3)
+│   ├── background.js          # Service worker: opens the tool page on icon click
+│   ├── icons/                 # Extension icons 16/32/48/128
+│   └── _locales/              # i18n messages (zh_CN / en)
 ├── src/
-│   ├── main.jsx               # 入口 + 三栏布局 UI（Ant Design ConfigProvider）
-│   ├── transform.js           # 编排层：类型探测 / cleanPromptInput / formatPrompt / compressPrompt
-│   ├── escape.js              # 转义编解码：配对扫描状态机、门禁直通编码、空白保留
-│   ├── json.js                # JSON：多层剥层解析、jsonrepair 兜底、格式化
-│   ├── html.js                # HTML：prettier 式建树与单行收拢，空白敏感元素保值
-│   ├── toon.js                # TOON：引号感知剥层、多文档切分、值级格式化
-│   ├── transform.test.js      # 单元测试（node --test）
-│   └── styles.css             # 布局样式
+│   ├── main.jsx               # Entry + three-column layout UI (Ant Design ConfigProvider)
+│   ├── transform.js           # Orchestrator: type detection / cleanPromptInput / formatPrompt / compressPrompt
+│   ├── escape.js              # Escape codec: paired-scan state machine, gate passthrough encoding, whitespace preservation
+│   ├── json.js                # JSON: multi-layer peeling parse, jsonrepair fallback, formatting
+│   ├── html.js                # HTML: prettier-style tree building and single-line collapse, whitespace-sensitive elements preserved
+│   ├── toon.js                # TOON: quote-aware peeling, multi-document splitting, value-level formatting
+│   ├── transform.test.js      # Unit tests (node --test)
+│   └── styles.css             # Layout styles
 ├── index.html
-└── vite.config.js             # base: './' 适配 chrome-extension:// 加载
+└── vite.config.js             # base: './' to support loading via chrome-extension://
 ```
 
-## 🧰 技术栈
+## 🧰 Tech Stack
 
 - [React 18](https://react.dev/) + [Vite 5](https://vitejs.dev/)
-- [Ant Design 5](https://ant.design/)（small 尺寸 / light 主题）
+- [Ant Design 5](https://ant.design/) (small size / light theme)
 - [@ant-design/icons](https://ant.design/components/icon)
-- [react-syntax-highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter)（Prism · Markdown 高亮 · 行号）
-- Chrome Extension [Manifest V3](https://developer.chrome.com/docs/extensions/mv3/)，仅申请 `clipboardWrite`（用于一键复制输出内容）
+- [react-syntax-highlighter](https://github.com/react-syntax-highlighter/react-syntax-highlighter) (Prism · Markdown highlighting · line numbers)
+- Chrome Extension [Manifest V3](https://developer.chrome.com/docs/extensions/mv3/), requesting only `clipboardWrite` (for one-click copying of output)
 
-## 🛠 可用脚本
+## 🛠 Available Scripts
 
-| 命令 | 说明 |
+| Command | Description |
 | --- | --- |
-| `npm run dev` | 启动本地开发服务器（Web 形态） |
-| `npm test` | 运行核心逻辑单元测试 |
-| `npm run build` | 构建生产产物至 `dist/`（可直接加载为 Chrome 扩展） |
-| `npm run preview` | 本地预览构建产物 |
+| `npm run dev` | Start the local dev server (web mode) |
+| `npm test` | Run unit tests for the core logic |
+| `npm run build` | Build production artifacts to `dist/` (loadable directly as a Chrome extension) |
+| `npm run preview` | Preview the build artifacts locally |
 
 ## 📄 License
 
