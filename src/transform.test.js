@@ -158,6 +158,54 @@ test('tolerates line breaks escaped through multiple layers', () => {
   assert.equal(formatPrompt(String.raw`Hello\\\\nworld`), 'Hello\nworld');
 });
 
+test('keeps escape descriptions inside inline code spans literal', () => {
+  // 内联代码跨度里的 \n / \\n / \t 是字符描述，散文没有结构转义时
+  // 不得剥成物理换行/Tab（否则 “Escape line breaks as `\\n`” 这类说明会被撕碎）
+  const descriptions = [
+    'Escape value line breaks as `\\n` before parsing.',
+    'Escape value line breaks as `\\\\n` and tabs as `\\\\t`.',
+    'Use ``a\\n b`` double backtick span.',
+    'Split on `,` then unescape `\\n`.',
+  ];
+  for (const input of descriptions) {
+    assert.equal(formatPrompt(input), input, input);
+    assert.equal(compressPrompt(input), input, input);
+    assert.equal(formatPrompt(compressPrompt(input)), input, input);
+  }
+});
+
+test('stops peeling inline code when prose contains undecodable Unicode escapes', () => {
+  for (const path of ['C:\\users', '\\usr', '\\u12', '\\u12xz']) {
+    const readable = `Path ${path} then \`\\n\` and \`\\\\n\` in JSON`;
+    assert.equal(formatPrompt(readable), readable);
+    const escaped = `Path ${path}\\nUse \`\\\\n\` and \`\\\\\\\\n\` in JSON`;
+    assert.equal(formatPrompt(escaped), `Path ${path}\nUse \`\\n\` and \`\\\\n\` in JSON`);
+  }
+});
+
+test('keeps inline descriptions beside formatted fenced blocks', () => {
+  for (const prefix of ['Use `\\n` literally.', 'Path C:\\users uses `\\n`.']) {
+    const input = `${prefix}\n\`\`\`json\n{"ok":true}\n\`\`\``;
+    const expected = `${prefix}\n\`\`\`json\n{\n\t"ok": true\n}\n\`\`\``;
+    assert.equal(formatPrompt(input), expected);
+    assert.equal(formatPrompt(JSON.stringify(input).slice(1, -1)), expected);
+  }
+});
+
+test('treats unequal backtick runs as prose', () => {
+  assert.equal(formatPrompt('Use ``a\\n` here.'), 'Use ``a\n` here.');
+});
+
+test('peels inline code span descriptions in lockstep with the prose escape layer', () => {
+  // 压缩产物整体一层转义：散文的 \n 与跨度内的描述同剥一层，绝不剥到物理换行
+  const readable = 'Note:\nEscape line breaks as `\\n` and literal `\\\\n` in values.';
+  const compressed = compressPrompt(readable);
+  assert.equal(compressed, 'Note:\\nEscape line breaks as `\\\\n` and literal `\\\\\\\\n` in values.');
+  assert.equal(compressed.includes('\n'), false);
+  assert.equal(formatPrompt(compressed), readable);
+  assert.equal(compressPrompt(compressed), compressed);
+});
+
 test('removes a content wrapper', () => {
   assert.equal(formatPrompt('"content": "Hello\\nworld",'), 'Hello\nworld');
   assert.equal(cleanPromptInput('{"content":"Hello\\nworld"}'), 'Hello\nworld');
@@ -201,6 +249,16 @@ test('denoises compressed fragments mixed into multi-line markdown before encodi
   assert.equal(compressPrompt(compressed), compressed);
   // 混入的字面 \t 不被剥层误当 Tab 解码
   assert.equal(compressPrompt('a\npath C:\\tmp \\"q\\"'), 'a\\npath C:\\\\tmp \\"q\\"');
+});
+
+test('keeps code span line-break descriptions when compressing multi-line markdown', () => {
+  // 内联代码跨度天然是单行，其中的 \n 只能是字符描述：
+  // 去噪剥层不得把它展开成物理换行，否则往返后描述被撕碎
+  const markdown = 'Rule one\nEscape line breaks as `\\n` in values';
+  const compressed = compressPrompt(markdown);
+  assert.equal(compressed, 'Rule one\\nEscape line breaks as `\\\\n` in values');
+  assert.equal(formatPrompt(compressed), markdown);
+  assert.equal(compressPrompt(compressed), compressed);
 });
 
 test('strips line-leading whitespace after escaped newlines when compressing', () => {

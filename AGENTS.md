@@ -8,11 +8,11 @@ A Prompt formatting tool available as both a Chrome extension and a web app. It 
 
 | Module | Lines | Responsibility | Internal Dependencies |
 |--------|-------|---------------|----------------------|
-| `escape.js` | ~192 | Escape primitives: JSON escape table constants, paired-scan decode/encode (`decodeEscapeLayer`/`encodeEscapeLayer`), gate-passthrough encoding (`gateEncode`), quote-aware scanning (`forEachOutsideChar`/`hasStructuralEscapes`) | None |
+| `escape.js` | ~226 | Escape primitives: JSON escape table constants, paired-scan decode/encode (`decodeEscapeLayer`/`encodeEscapeLayer`), gate-passthrough encoding (`gateEncode`), quote-aware scanning (`forEachOutsideChar`/`hasStructuralEscapes`), inline code span splitting and lockstep layer peeling (`splitCodeSpans`/`decodeSegmentsToStableText`) | None |
 | `json.js` | ~95 | JSON pipeline: strict parsing + multi-layer peeling (`parseJsonLayers`) + `jsonrepair` fallback + formatting | `escape.js` |
 | `toon.js` | ~265 | TOON pipeline: quote-aware layer peeling, generic header detection (`name[N]{fields}:` / `name[N]:` / `name{fields}:`), line-aware block layout and value governance | `escape.js` |
 | `html.js` | ~165 | HTML formatting: prettier-style tree-building (`formatHtml`) with single-line collapse + HTML whitespace collapsing | None (self-contained) |
-| `transform.js` | ~260 | Orchestrator: input type detection (`detectInputType`), input cleaning (`cleanPromptInput`), format/compress entry points (`formatInput`/`compressPrompt`) | `escape.js`, `json.js`, `html.js`, `toon.js` |
+| `transform.js` | ~351 | Orchestrator: input type detection (`detectInputType`), input cleaning (`cleanPromptInput`), format/compress entry points (`formatInput`/`compressPrompt`) | `escape.js`, `json.js`, `html.js`, `toon.js` |
 | `main.jsx` | ~197 | UI entry: React app shell with three-column layout, format/compress buttons, syntax highlighting, drag-to-resize panels | `transform.js` |
 
 ### Dependency Direction (unidirectional, no cycles)
@@ -33,7 +33,7 @@ Arrows point from dependent to dependency. No module imports from a module that 
 
 Compression of plain text uses `gateEncode`, **not** decode-first. Decode-first would misinterpret literal `\t` in Windows paths (`C:\tmp`) as a Tab character, which then gets collapsed and lost.
 
-- **Multi-line input** (contains a real newline) is readable Markdown and fully escaped via the escape table (`encodeEscapeLayer`) — **unless** it mixes in compressed fragments (literal `\n` / `\"` sequences, detected by `MIXED_LAYER_SIGNAL`): then denoise-first applies — a targeted peel (`peelMixedLayer`) strips only `\"` → `"` and `\n` → real newline before collapsing and encoding, so the product carries exactly one escape layer and repeated compression is idempotent. The peel deliberately never touches `\t` / `\\` (path/regex safety).
+- **Multi-line input** (contains a real newline) is readable Markdown and fully escaped via the escape table (`encodeEscapeLayer`) — **unless** it mixes in compressed fragments (literal `\n` / `\"` sequences, detected by `MIXED_LAYER_SIGNAL`): then denoise-first applies — a targeted peel (`peelMixedLayer`) strips only `\"` → `"` and `\n` → real newline before collapsing and encoding, so the product carries exactly one escape layer and repeated compression is idempotent. The peel deliberately never touches `\t` / `\\` (path/regex safety), and never expands `\n` inside an inline code span (see convention 4).
 - **Single-line input** may already be a compressed product: if it contains legal escapes (`\"`, `\\`, `\n`, `\r`, `\b`, `\f`, `\uXXXX` — deliberately **excluding** `\t`), they are protected as-is and never double-escaped. Repeated compression is idempotent.
 - A **bare `"`** (not preceded by `\`) is always escaped to `\"`, even in gate mode — only already-escaped `\"` is protected, so the compressed output is always a valid JSON string body.
 - Literal `\t` has its backslash escaped (`\` → `\\`); a real Tab character outputs `\t`.
@@ -54,6 +54,14 @@ The TOON pipeline uses quote-aware `hasStructuralEscapes` (escapes outside quote
 - **Compress side**: collapses inline whitespace (≥2 spaces/tabs → single space), strips line-leading/trailing whitespace, preserves newline structure. CR/CRLF normalized to LF before processing. An escaped `\n` is treated as a line boundary so indentation after it is stripped (not collapsed to a space); `\\n` (escaped backslash + literal `n`) is not a line break.
 - **HTML whitespace**: all whitespace runs between tags (including newlines) collapse to a single space.
 - **Fenced blocks**: symmetric on both sides — format peels and formats inner content; compress blindly adds one escape layer. Inner JSON/HTML/XML is formatted/compressed independently.
+
+### 4. Inline Code Spans Are Character Descriptions (内联代码跨度即字符描述)
+
+Escape sequences inside a Markdown inline code span (`` `…` `` / ``` ``…`` ```, equal-length backtick runs, no blank line inside) are **descriptions of characters**, not structural escapes. Prose such as ``Escape value line breaks as `\n` `` must survive both directions verbatim.
+
+- **Format side**: `splitCodeSpans` segments the text (fenced blocks stay whole and count as structural), then `decodeSegmentsToStableText` peels in **lockstep** — each round decodes prose with fold semantics and code spans with strict single-layer decode. Stop when prose has no JSON escape or decoding leaves every prose segment unchanged; discard that unchanged round, including its code-span decoding. Fenced-block formatting retries only for decodable escapes in surrounding prose, excluding inline spans. Invalid Unicode escapes such as `C:\users` must not trigger extra code-span peeling.
+- **Compress side**: symmetric — `\n` inside a code span is never expanded into a real newline (`peelMixedLayer` / `expandEscapedNewlines` share one paired backslash walker, `walkEscapes`). An inline code span is single-line by nature, so a literal `\n` there can only describe a line break; `\"` inside a span is still denoised, since a compressed fragment can genuinely carry it.
+- **Not protected**: fenced code blocks (they are structural text and participate in normal peeling), and everything outside backticks (multi-layer fold-to-stable still applies, so `Hello\\nworld` → `Hello` + newline + `world`).
 
 ## Commands
 

@@ -3,8 +3,9 @@
 
 import {
   FULLWIDTH_QUOTES, JSON_ESCAPE, JSON_INDENT, MAX_JSON_DECODE_ROUNDS,
-  decodeEscapeLayer, decodeJsonString, decodeToStableText, encodeEscapeLayer,
+  decodeEscapeLayer, decodeJsonString, decodeSegmentsToStableText, encodeEscapeLayer,
   gateEncode, hasStructuralEscapes, preserveEdgeSpaces, preserveEdgeWhitespace,
+  splitCodeSpans,
 } from './escape.js';
 import {
   isJsonLike, isObject, isParsableJson, parseJsonDocument, parseJsonLayers,
@@ -110,13 +111,31 @@ function formatStructuredContent(input) {
     source = decoded;
   }
 
-  const decoded = decodeToStableText(input);
+  const decoded = decodeSegmentsToStableText(splitDecodeSegments(input));
   const trimmed = decoded.trim();
   const formatted = isJsonLike(trimmed)
     ? formatJson(trimmed)
     : trimmed.startsWith('<') ? formatHtml(trimmed) : collapsePromptWhitespace(trimmed);
 
   return formatted === input ? input : preserveEdgeWhitespace(input, formatted);
+}
+
+// 剥层用的分段：fenced 块整段（含围栏）属结构文本，按散文参与剥层判定；
+// 非 fenced 段再切出内联代码跨度，跨度内的 \n / \\n 是字符描述，
+// 只随散文同步剥层，不被独立剥到稳定（否则描述会变成物理换行）
+function splitDecodeSegments(input) {
+  const segments = [];
+  const blockRegex = fencedBlockRegex();
+  let lastIndex = 0;
+  let match = blockRegex.exec(input);
+  while (match !== null) {
+    segments.push(...splitCodeSpans(input.slice(lastIndex, match.index)));
+    segments.push({ code: false, text: match[0] });
+    lastIndex = blockRegex.lastIndex;
+    match = blockRegex.exec(input);
+  }
+  segments.push(...splitCodeSpans(input.slice(lastIndex)));
+  return segments;
 }
 
 // 规格 1c/1d：纯文本格式化同压缩侧折叠 ≥2 个连续空格/Tab 为单空格；
@@ -149,8 +168,10 @@ function formatFencedBlocks(input) {
     const pretty = lang === 'json' ? formatJson(trimmedContent) : formatHtml(trimmedContent);
     return `\`\`\`${language}\n${pretty}\n\`\`\``;
   });
-  // 围栏外仍带转义：整体还包着一层，交由剥层重试，不提前返回
-  if (found && formatted && JSON_ESCAPE.test(stripFencedBlocks(input))) return null;
+  // 仅围栏外散文中可解码的转义才触发剥层；内联字符描述和无效 \u 不代表外层转义。
+  if (found && formatted && splitCodeSpans(stripFencedBlocks(input)).some((segment) => (
+    !segment.code && decodeEscapeLayer(segment.text, false) !== segment.text
+  ))) return null;
   return found && formatted ? result : null;
 }
 
@@ -231,10 +252,30 @@ function encodePlainText(text) {
 // 刻意不含 \t 与 \\（路径/正则高发，保护优先）
 const MIXED_LAYER_SIGNAL = /\\[n"]/;
 
-// 定向剥层：只把 \" 还原为引号、\n 展开为真实换行（交由折叠视为行边界）；
-// \\n 成对跳过（已转义反斜杠 + 字面 n 不是换行），\t \\ 等其余转义原样保留，
-// 与「字面 \t 保护优先」的门禁决策一致，不承担全量单层解码的路径风险
+// 定向剥层：只把 \" 还原为引号、散文里的 \n 展开为真实换行（交由折叠视为行边界）。
+// 内联代码跨度天然是单行，其中的 \n 只能是「换行字符描述」而非被压缩的真实换行，
+// 展开会把它变成物理换行并撕碎跨度，故跨度内只剥 \"、保留 \n（与格式化侧对称）
 function peelMixedLayer(text) {
+  return splitCodeSpans(text)
+    .map((segment) => walkEscapes(segment.text, { peelQuotes: true, expandNewlines: !segment.code }))
+    .join('');
+}
+
+// 仅把散文里的 \n 转义展开为真实换行，供空白折叠识别行边界；
+// 内联代码跨度里的 \n 是字符描述，不展开（与格式化侧的跨度保护对称）
+function expandEscapedNewlines(text) {
+  return splitCodeSpans(text)
+    .map((segment) => (segment.code
+      ? segment.text
+      : walkEscapes(segment.text, { peelQuotes: false, expandNewlines: true })))
+    .join('');
+}
+
+// 反斜杠配对游走（单一实现，上面两个入口共用）：\\ 成对跳过
+// （已转义反斜杠 + 字面 n 不是换行），按策略剥 \" 与展开 \n，
+// \t \\ 等其余转义原样保留，与「字面 \t 保护优先」的门禁决策一致，
+// 不承担全量单层解码的路径风险
+function walkEscapes(text, { peelQuotes, expandNewlines }) {
   let out = '';
   for (let i = 0; i < text.length; i += 1) {
     if (text[i] !== '\\') {
@@ -246,36 +287,12 @@ function peelMixedLayer(text) {
       i += 1;
       continue;
     }
-    if (text[i + 1] === '"') {
+    if (peelQuotes && text[i + 1] === '"') {
       out += '"';
       i += 1;
       continue;
     }
-    if (text[i + 1] === 'n') {
-      out += '\n';
-      i += 1;
-      continue;
-    }
-    out += text[i];
-  }
-  return out;
-}
-
-// 仅把 \n 转义（单个反斜杠后跟 n）展开为真实换行，供空白折叠识别行边界；
-// \\n（已转义反斜杠 + 字面 n）成对跳过不受影响，其余转义（\t \" \\ 等）原样保留
-function expandEscapedNewlines(text) {
-  let out = '';
-  for (let i = 0; i < text.length; i += 1) {
-    if (text[i] !== '\\') {
-      out += text[i];
-      continue;
-    }
-    if (text[i + 1] === '\\') {
-      out += '\\\\';
-      i += 1;
-      continue;
-    }
-    if (text[i + 1] === 'n') {
+    if (expandNewlines && text[i + 1] === 'n') {
       out += '\n';
       i += 1;
       continue;

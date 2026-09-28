@@ -121,16 +121,45 @@ export function gateEncode(text) {
   return out;
 }
 
-// 将 Prompt 文本中叠加的转义层逐层剥掉，直到不再变化（显示语义：越剥越可读）
-export function decodeToStableText(input) {
-  let current = input;
+// 将 Prompt 文本中叠加的转义层逐层剥掉（显示语义：越剥越可读）。
+// segments 为 splitCodeSpans / 调用方给出的 { code, text } 序列：
+// 散文段用 fold 语义剥到不再含 JSON 转义，code 段（Markdown 内联代码跨度）
+// 只随散文同步剥层且用与编码互逆的严格单层解码——散文剥完或无变化即止，
+// 跨度内 `\n` / `\\n` 这类字符描述因此永远不会被继续剥成物理换行
+export function decodeSegmentsToStableText(segments) {
+  let current = segments;
   for (let round = 0; round <= MAX_JSON_DECODE_ROUNDS; round += 1) {
-    if (!JSON_ESCAPE.test(current)) break;
-    const decoded = decodeEscapeLayer(current, true);
-    if (decoded === current) break;
+    const prose = current.filter((segment) => !segment.code).map((segment) => segment.text).join('');
+    if (!JSON_ESCAPE.test(prose)) break;
+    const decoded = current.map((segment) => ({
+      code: segment.code,
+      text: decodeEscapeLayer(segment.text, !segment.code),
+    }));
+    // 无效的 \u 仍会命中 JSON_ESCAPE；散文无进展时，不提交代码跨度的剥层结果。
+    if (decoded.every((segment, index) => segment.code || segment.text === current[index].text)) break;
     current = decoded;
   }
-  return current;
+  return current.map((segment) => segment.text).join('');
+}
+
+// Markdown 内联代码跨度：等长反引号串配对（`…` / ``…``），且跨度内不含空行
+// （跨空行的散落反引号按散文处理，避免把整段文本误圈成代码）
+const INLINE_CODE_SPAN = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g;
+
+// 按内联代码跨度切分文本：返回 { code, text } 序列，拼接后与原文一致。
+// fenced 代码块须由调用方先行剔除（整块属结构文本，参与正常剥层）
+export function splitCodeSpans(text) {
+  const segments = [];
+  let last = 0;
+  INLINE_CODE_SPAN.lastIndex = 0;
+  let match;
+  while ((match = INLINE_CODE_SPAN.exec(text)) !== null) {
+    if (match[0].includes('\n\n')) continue;
+    segments.push({ code: false, text: text.slice(last, match.index) }, { code: true, text: match[0] });
+    last = INLINE_CODE_SPAN.lastIndex;
+  }
+  segments.push({ code: false, text: text.slice(last) });
+  return segments;
 }
 
 // 剥一层转义：优先均匀剥层（整段按 JSON 字符串规则解一层，
